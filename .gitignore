@@ -13,3 +13,5 @@ KhongKhunTTS-TH-VCTK-*
 runs
 
 *.pth
+
+__pycache__
