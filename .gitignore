@@ -15,3 +15,7 @@ runs
 *.pth
 
 __pycache__
+
+model
+reference_wav
+output
