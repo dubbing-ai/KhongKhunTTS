@@ -19,3 +19,4 @@ __pycache__
 model
 reference_wav
 output
+output_batch
