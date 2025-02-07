@@ -17,6 +17,6 @@ runs
 __pycache__
 
 model
-reference_wav
+reference_voice
 output
 output_batch
