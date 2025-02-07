@@ -11,3 +11,5 @@ TSync2-to-vctk.zip
 KhongKhunTTS-TH-VCTK-*
 
 runs
+
+*.pth
