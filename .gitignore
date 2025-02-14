@@ -1,0 +1,15 @@
+commonvoice-to-vctk
+commonvoice-to-vctk.zip
+._commonvoice-to-vctk
+
+TSync2-to-vctk
+TSync2-to-vctk.zip
+
+.DS_Store
+._.DS_Store
+*.pyc
+KhongKhunTTS-TH-VCTK-*
+
+runs
+
+*.pth
