@@ -15,3 +15,10 @@ KhongKhunTTS-TH-VCTK-*
 runs
 
 *.pth
+
+__pycache__
+
+model
+reference_voice
+output
+output_batch
