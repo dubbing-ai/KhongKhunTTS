@@ -5,8 +5,7 @@ from argparse import RawTextHelpFormatter
 import torch
 import torchaudio
 from tqdm import tqdm
-
-from wavlm_module.WavLM import WavLM, WavLMConfig
+from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
 
 from TTS.config import load_config
 from TTS.config.shared_configs import BaseDatasetConfig
@@ -16,78 +15,37 @@ from TTS.tts.utils.managers import save_file
 from typing import Callable, Union, List
 
 
-def load_wavlm_model(model_path, use_cuda=True):
-    device = 'cuda' if use_cuda and torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
-    checkpoint = torch.load(model_path, map_location=device)
-
-    cfg = WavLMConfig(checkpoint['cfg'])
-    model = WavLM(cfg).to(device)
-    model.load_state_dict(checkpoint['model'])
-    model.eval()
-
-    return model, device, cfg
-
-
-
-def extract_wavlm_embedding(model, wav_file: Union[str, List[str]], cfg, use_cuda) -> list:
-    """Compute a embedding from a given audio file.
-
-    Args:
-        wav_file (Union[str, List[str]]): Target file path.
-
-    Returns:
-        list: Computed embedding.
-    """
-
-    def _compute(wav_file: str):
-        waveform, sampling_rate = torchaudio.load(wav_file)
-        
-        if torch.backends.mps.is_available():
-            waveform = waveform.to('mps')
-            
-        if use_cuda:
-            waveform = waveform.cuda()
-        
-        if sampling_rate != 16000:
-            resampler = torchaudio.transforms.Resample(sampling_rate, 16000)
-            waveform = resampler(waveform)
-            
-        # Convert to mono if stereo
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-
-        # extract the representation of last layer
-        if cfg.normalize:
-            waveform = torch.nn.functional.layer_norm(waveform , waveform.shape)
-        rep = model.extract_features(waveform)[0]
-
-        return rep.mean(dim=1)
-
-    if isinstance(wav_file, list):
-        # compute the mean embedding
-        embeddings = None
-        for wf in wav_file:
-            embedding = _compute(wf)
-            if embeddings is None:
-                embeddings = embedding
-            else:
-                embeddings += embedding
-        return (embeddings / len(wav_file))[0].tolist()
-    embedding = _compute(wav_file)
+def load_wavlm_model(model_path="microsoft/wavlm-base-plus-sv", use_cuda=True):
+    """Load WavLM model and feature extractor from HuggingFace.
     
-    return embedding[0].tolist()
-
-
-def compute_wavlm_embedding(wav_file: Union[str, List[str]], processor, model, device='cuda') -> list:
-    """
-    Compute WavLM embedding from a given audio file or list of audio files.
     Args:
-        wav_file (Union[str, List[str]]): Target file path or list of file paths.
-        processor: WavLM processor
-        model: WavLM model
-        device: Computing device ('cuda' or 'cpu')
+        model_path (str): HuggingFace model path or local path
+        use_cuda (bool): Whether to use CUDA if available
+        
     Returns:
-        list: Computed embedding as a list of floats.
+        tuple: (model, feature_extractor, device)
+    """
+    device = 'cuda' if use_cuda and torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+    
+    # Load model and feature extractor
+    model = WavLMForXVector.from_pretrained(model_path).to(device)
+    feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
+    
+    model.eval()
+    return model, feature_extractor, device
+
+
+def extract_wavlm_embedding(model, feature_extractor, wav_file: Union[str, List[str]], device='cuda') -> list:
+    """Compute a embedding from a given audio file using WavLM.
+
+    Args:
+        model: WavLM model
+        feature_extractor: WavLM feature extractor
+        wav_file (Union[str, List[str]]): Target file path or list of paths
+        device (str): Computing device
+
+    Returns:
+        list: Computed embedding
     """
     def _compute(wav_file: str):
         # Load and resample audio if necessary
@@ -99,16 +57,19 @@ def compute_wavlm_embedding(wav_file: Union[str, List[str]], processor, model, d
         # Convert to mono if stereo
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
+            
+        # Convert to numpy array for feature extractor
+        audio_array = waveform.squeeze().numpy()
         
         # Process through WavLM
-        inputs = processor(waveform.squeeze().numpy(), sampling_rate=16000, return_tensors="pt")
+        inputs = feature_extractor(audio_array, sampling_rate=16000, return_tensors="pt")
         inputs = {k: v.to(device) for k, v in inputs.items()}
         
         with torch.no_grad():
             outputs = model(**inputs)
-        
-        # Get the mean of last hidden states as the embedding
-        embedding = torch.mean(outputs.last_hidden_state, dim=1)
+            
+        # Normalize embeddings
+        embedding = torch.nn.functional.normalize(outputs.embeddings, dim=-1)
         return embedding
 
     if isinstance(wav_file, list):
@@ -120,13 +81,10 @@ def compute_wavlm_embedding(wav_file: Union[str, List[str]], processor, model, d
                 embeddings = embedding
             else:
                 embeddings += embedding
-        # Average and convert to list
-        embedding = (embeddings / len(wav_file))
-    else:
-        # Single file processing
-        embedding = _compute(wav_file)
+        return (embeddings / len(wav_file))[0].cpu().tolist()
     
-    return embedding.tolist()
+    embedding = _compute(wav_file)
+    return embedding[0].cpu().tolist()
 
 
 def compute_embeddings(
@@ -167,7 +125,7 @@ def compute_embeddings(
         samples = meta_data_train + meta_data_eval
 
     # Load WavLM Model
-    wavlm_model, _, cfg = load_wavlm_model(model_path, use_cuda)
+    model, feature_extractor, device = load_wavlm_model(model_path, use_cuda)
 
     # Load old speaker mappings if provided
     speaker_mapping = {}
@@ -184,7 +142,7 @@ def compute_embeddings(
             continue
 
         # Compute speaker embedding using WavLM
-        embedding = extract_wavlm_embedding(wavlm_model, audio_file, cfg, use_cuda)
+        embedding = extract_wavlm_embedding(model, feature_extractor, audio_file, device)
 
         speaker_mapping[embedding_key] = {
             "name": class_name,
@@ -211,8 +169,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_path",
         type=str,
-        help="Path to WavLM model checkpoint file.",
-        default="https://huggingface.co/microsoft/wavlm-base-plus/resolve/main/wavlm_base_plus.pt",
+        help="Path to WavLM model or HuggingFace model name.",
+        default="microsoft/wavlm-base-plus-sv",
     )
     parser.add_argument(
         "--config_path",
