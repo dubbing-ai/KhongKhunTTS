@@ -132,6 +132,10 @@ def compute_embeddings(
     if old_speakers_file is not None and old_append:
         speaker_mapping = torch.load(old_speakers_file)
 
+    # Keep track of filtered files
+    filtered_count = 0
+    total_count = len(samples)
+
     for fields in tqdm(samples):
         class_name = fields["speaker_name"]
         audio_file = fields["audio_file"]
@@ -141,13 +145,35 @@ def compute_embeddings(
             speaker_mapping[embedding_key]["name"] = class_name
             continue
 
-        # Compute speaker embedding using WavLM
-        embedding = extract_wavlm_embedding(model, feature_extractor, audio_file, device)
+        # Check audio duration
+        try:
+            metadata = torchaudio.info(audio_file)
+            duration_samples = metadata.num_frames
+            
+            # Skip files shorter than 1 second (16000 samples)
+            if duration_samples < 16000:
+                filtered_count += 1
+                continue
+                
+            # Compute speaker embedding using WavLM
+            embedding = extract_wavlm_embedding(model, feature_extractor, audio_file, device)
 
-        speaker_mapping[embedding_key] = {
-            "name": class_name,
-            "embedding": embedding,
-        }
+            speaker_mapping[embedding_key] = {
+                "name": class_name,
+                "embedding": embedding,
+            }
+        except Exception as e:
+            print(f"Error processing {audio_file}: {str(e)}")
+            filtered_count += 1
+            continue
+
+        # # Compute speaker embedding using WavLM
+        # embedding = extract_wavlm_embedding(model, feature_extractor, audio_file, device)
+
+        # speaker_mapping[embedding_key] = {
+        #     "name": class_name,
+        #     "embedding": embedding,
+        # }
 
     if speaker_mapping:
         # Save computed embeddings
@@ -159,7 +185,9 @@ def compute_embeddings(
         os.makedirs(os.path.dirname(mapping_file_path), exist_ok=True)
         save_file(speaker_mapping, mapping_file_path)
         print("Speaker embeddings saved at:", mapping_file_path)
-
+        print(f"Processed {total_count} files:")
+        print(f"- Filtered out {filtered_count} files shorter than 1 second")
+        print(f"- Successfully processed {len(speaker_mapping)} files")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
