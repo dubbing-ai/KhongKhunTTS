@@ -22,3 +22,6 @@ model
 reference_voice
 output
 output_batch
+
+# Environment Variable
+.env
