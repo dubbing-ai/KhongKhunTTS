@@ -7,8 +7,7 @@ from pathlib import Path
 
 from typing import Tuple
 
-
-def process_audio(audio_file_path, api_key, keep_transliterate_english=False) -> Tuple[str, str]:
+def transcribe_audio_from_path(audio_file_path, api_key, keep_transliterate_english=False) -> Tuple[str, str]:
     """
     Process audio file with Gemini Flash 2.0 - transcribe and translate to Thai in one call.
 
@@ -277,8 +276,8 @@ def main():
     print("This may take a moment depending on the file size...")
 
     # Process audio - transcribe and translate in one call
-    transcription, thai_translation = process_audio(audio_file_path, api_key)
-
+    transcription, thai_translation = transcribe_audio_from_path(audio_file_path, api_key)
+    
     if transcription and thai_translation:
         print("\nTranscription:")
         print("--------------")
