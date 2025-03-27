@@ -187,7 +187,7 @@ def initialize_model(checkpoint_name):
         )
         
         # Set default inference parameters
-        model.length_scale = 1.5
+        model.length_scale = 1.0
         model.inference_noise_scale = 0.2
         model.inference_noise_scale_dp = 0.2
         
@@ -529,7 +529,7 @@ def synthesize_speech(reference_audio, translation_text, model, C, ap, speaker_m
         model.inference_noise_scale = noise_scale
         model.inference_noise_scale_dp = noise_scale_dp
         
-        # Language ID (hardcoded to 0 for now, which is English according to the notebook)
+        # Language ID (hardcoded to 0 for now, which is Thai)
         language_id = 0
         
         # Synthesize
@@ -600,7 +600,7 @@ def process_input_audio_async(audio_path, model=None, C=None, ap=None, speaker_m
             print(f"Processing audio from file: {audio_path}")
         
         if not os.path.exists(audio_path):
-            return None, "Audio file not found"
+            return None, None, "Audio file not found"
         
         filename = os.path.basename(audio_path)
         basename = os.path.splitext(filename)[0]
@@ -614,7 +614,7 @@ def process_input_audio_async(audio_path, model=None, C=None, ap=None, speaker_m
             print(f"Copied to processed path: {processed_wav_path}")
         except Exception as e:
             print(f"Error copying: {e}")
-            return None, f"Error copying audio: {str(e)}"
+            return None, None, f"Error copying audio: {str(e)}"
         
         # Extract embedding if speaker_manager is available
         embedding = None
@@ -654,6 +654,7 @@ def create_ui():
         ap_state = gr.State(None)
         speaker_manager_state = gr.State(None)
         model_initialized_state = gr.State(False)
+        selected_audio_state = gr.State(None)  # New state to track selected audio
         
         # Top header with model selection dropdown
         with gr.Row(equal_height=True):
@@ -680,13 +681,22 @@ def create_ui():
         with gr.Tabs() as tabs:
             # Dubbing tab (main functionality)
             with gr.TabItem("Dubbing"):
-                # Audio input section
+                # Audio input section with two options
                 gr.Markdown("## Input Reference Audio")
                 with gr.Row():
-                    audio_input = gr.Audio(
-                        label="Record or Upload Audio", 
-                        type="filepath"
-                    )
+                    with gr.Column(scale=1):
+                        audio_input_mic = gr.Audio(
+                            label="Record Audio", 
+                            type="filepath",
+                            source="microphone"
+                        )
+                    
+                    with gr.Column(scale=1):
+                        audio_input_upload = gr.Audio(
+                            label="Upload Audio File", 
+                            type="filepath",
+                            source="upload"
+                        )
                 
                 # Process and Transcribe buttons
                 with gr.Row():
@@ -695,7 +705,7 @@ def create_ui():
                 
                 # Processing status
                 with gr.Row():
-                    processing_status = gr.Markdown("Upload audio and click 'Process Audio' to start")
+                    processing_status = gr.Markdown("Upload audio or record and click 'Process Audio' to start")
                 
                 # Transcription and translation outputs
                 with gr.Row():
@@ -718,8 +728,8 @@ def create_ui():
                         length_scale = gr.Slider(
                             minimum=0.5, 
                             maximum=2.5, 
-                            value=1.5, 
-                            step=0.1, 
+                            value=1.0, 
+                            step=0.05, 
                             label="Speech Length (Speed)",
                             info="Higher values make speech slower"
                         )
@@ -729,7 +739,7 @@ def create_ui():
                             minimum=0.0, 
                             maximum=1.0, 
                             value=0.2, 
-                            step=0.05, 
+                            step=0.01, 
                             label="Voice Variation",
                             info="Controls variation in voice characteristics"
                         )
@@ -739,7 +749,7 @@ def create_ui():
                             minimum=0.0, 
                             maximum=1.0, 
                             value=0.2, 
-                            step=0.05, 
+                            step=0.01, 
                             label="Duration Variation",
                             info="Controls variation in phoneme durations"
                         )
@@ -770,6 +780,27 @@ def create_ui():
             with gr.TabItem("Training (Work in Progress)"):
                 gr.Markdown("## Coming Soon")
                 gr.Markdown("This feature is under development.")
+        
+        # Function to update the selected audio state
+        def update_selected_audio(mic_input, upload_input):
+            if mic_input is not None:
+                return mic_input
+            elif upload_input is not None:
+                return upload_input
+            return None
+        
+        # Connect both audio inputs to update the selected audio state
+        audio_input_mic.change(
+            fn=update_selected_audio,
+            inputs=[audio_input_mic, audio_input_upload],
+            outputs=selected_audio_state
+        )
+        
+        audio_input_upload.change(
+            fn=update_selected_audio,
+            inputs=[audio_input_mic, audio_input_upload],
+            outputs=selected_audio_state
+        )
         
         # Set up event handling
         
@@ -826,34 +857,34 @@ def create_ui():
         
         # Process audio step 2: Do the actual processing
         def process_audio(audio_input, model, C, ap, speaker_manager, is_model_initialized):
-          """Process the audio and return explicit UI updates"""
-          if not audio_input:
-              return gr.update(value="Please provide an audio input (record or upload)."), gr.update(interactive=False), gr.update(value="⚠️ No audio provided"), None, None
-          
-          if not is_model_initialized:
-              return gr.update(value="Model not initialized. Please load a model first."), gr.update(interactive=False), gr.update(value="⚠️ No model loaded"), None, None
-          
-          try:
-              import time
-              # Add a slight pause to ensure UI updates happen
-              time.sleep(0.5)
-              
-              # Use the simplified processing function
-              processed_path, embedding, error = process_input_audio_async(
-                  audio_input, model, C, ap, speaker_manager)
-              
-              if error:
-                  return gr.update(value=f"Error: {error}"), gr.update(interactive=False), gr.update(value=f"❌ Processing failed: {error}"), None, None
-              
-              print(f"Audio processed successfully: {processed_path}")
-              
-              # Return results with explicit gr.update()
-              return gr.update(value="✅ Audio processing complete! You can now transcribe it."), gr.update(interactive=True), gr.update(value="Audio processed successfully"), processed_path, embedding
-          
-          except Exception as e:
-              import traceback
-              traceback.print_exc()
-              return gr.update(value=f"Error: {str(e)}"), gr.update(interactive=False), gr.update(value=f"❌ Error: {str(e)}"), None, None
+            """Process the audio and return explicit UI updates"""
+            if not audio_input:
+                return gr.update(value="Please provide an audio input (record or upload)."), gr.update(interactive=False), gr.update(value="⚠️ No audio provided"), None, None
+            
+            if not is_model_initialized:
+                return gr.update(value="Model not initialized. Please load a model first."), gr.update(interactive=False), gr.update(value="⚠️ No model loaded"), None, None
+            
+            try:
+                import time
+                # Add a slight pause to ensure UI updates happen
+                time.sleep(0.5)
+                
+                # Use the simplified processing function
+                processed_path, embedding, error = process_input_audio_async(
+                    audio_input, model, C, ap, speaker_manager)
+                
+                if error:
+                    return gr.update(value=f"Error: {error}"), gr.update(interactive=False), gr.update(value=f"❌ Processing failed: {error}"), None, None
+                
+                print(f"Audio processed successfully: {processed_path}")
+                
+                # Return results with explicit gr.update()
+                return gr.update(value="✅ Audio processing complete! You can now transcribe it."), gr.update(interactive=True), gr.update(value="Audio processed successfully"), processed_path, embedding
+            
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return gr.update(value=f"Error: {str(e)}"), gr.update(interactive=False), gr.update(value=f"❌ Error: {str(e)}"), None, None
                 
         # First show status message
         process_btn.click(
@@ -867,7 +898,7 @@ def create_ui():
         process_btn.click(
             fn=process_audio,
             inputs=[
-                audio_input, 
+                selected_audio_state,  # Use selected_audio_state instead of audio_input 
                 model_state, 
                 config_state, 
                 ap_state, 
