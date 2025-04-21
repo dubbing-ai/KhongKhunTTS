@@ -25,3 +25,5 @@ output_batch
 
 # Environment Variable
 .env
+
+processed_audio
