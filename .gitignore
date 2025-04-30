@@ -2,6 +2,9 @@ commonvoice-to-vctk
 commonvoice-to-vctk.zip
 ._commonvoice-to-vctk
 
+commonvoice-to-virtual-vctk
+commonvoice-to-virtual-vctk.zip
+
 TSync2-to-vctk
 TSync2-to-vctk.zip
 TSync2-to-vctk-ph
@@ -9,6 +12,15 @@ TSync2-to-vctk-ph.zip
 
 LJSpeech-to-vctk
 LJSpeech-to-vctk.zip
+
+thai-central-to-vctk
+thai-central-to-vctk.zip
+
+thai-central-to-virtual-vctk
+thai-central-to-virtual-vctk.zip
+
+vctk-to-vctk
+vctk-to-vctk.zip
 
 .DS_Store
 ._.DS_Store
@@ -23,11 +35,8 @@ __pycache__
 
 model
 reference_voice
-processed_audio
 output
 output_batch
 
 # Environment Variable
 .env
-
-processed_audio
